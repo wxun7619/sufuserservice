@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.util.List;
+import java.util.Optional;
 
 public interface RelRepository extends JpaRepository<Domain_DomainUser_Rel,String>{
 
@@ -22,5 +23,10 @@ public interface RelRepository extends JpaRepository<Domain_DomainUser_Rel,Strin
     Integer countByMyQuery(
             @Param("domainId") String domainId,
             @Param("keyword") String keyword
+    );
+    @Query("select rel from Domain_DomainUser_Rel rel where rel.domainUser.rowId=:domainUserId and rel.domainId=:domainId")
+    Optional<Domain_DomainUser_Rel> findByMyQuery(
+            @Param("domainUserId") String domainUserId,
+            @Param("domainId") String domainId
     );
 }

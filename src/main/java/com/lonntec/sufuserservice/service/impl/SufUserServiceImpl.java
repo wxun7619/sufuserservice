@@ -41,7 +41,6 @@ public class SufUserServiceImpl implements SufUserService{
             throw new SufUserSystemException(SufUserSystemStateCode.Domain_IsNotExist);
         }
         String domainId=domainOptional.get().getRowId();
-
         Integer queryPage = page==null || page <= 0 ? 1 : page;
         Integer querySize = size==null || size <= 0 ? 25 : size;
         PageRequest pageable = new PageRequest(queryPage -1, querySize);
@@ -76,7 +75,6 @@ public class SufUserServiceImpl implements SufUserService{
             throw new SufUserSystemException(SufUserSystemStateCode.Domain_IsNotExist);
         }
         String domainId=domainOptional.get().getRowId();
-
         String queryKeywork = keyword== null || keyword.replaceAll("\\s*","").equals("") ? "%" : keyword;
         if(!queryKeywork.contains("%")){
             queryKeywork = "%" + queryKeywork + "%";
@@ -156,32 +154,32 @@ public class SufUserServiceImpl implements SufUserService{
         }else if (domainNumber==null||domainNumber.replaceAll("\\s*","").equals("")){
             throw new SufUserSystemException(SufUserSystemStateCode.DomainNumber_IsEmpty);
         }
-        // 邮箱是否冲突
-        Optional<DomainUser> domainUserByEmail=sufUserRepository.findByEmail(email);
-        if(domainUserByEmail.isPresent()){
-            throw new SufUserSystemException(SufUserSystemStateCode.Email_ISRepeat);
+        //用户是否存在
+        Optional<DomainUser> domainUserById=sufUserRepository.findById(rowId);
+        if(!domainUserById.isPresent()){
+            throw new SufUserSystemException(SufUserSystemStateCode.User_IsNotExist);
         }
-        //获取企业域信息
+        //获取企业域信息,判断企业域是否存在
         Optional<Domain> domainOptional=domainRepository.findByDomainNumber(domainNumber);
         if(!domainOptional.isPresent()){
             throw new SufUserSystemException(SufUserSystemStateCode.Domain_IsNotExist);
         }
-        //判断手机号是否存在,添加到企业域中
+        // 邮箱是否冲突
+        Optional<DomainUser> domainUserByEmail=sufUserRepository.findByEmail(email);
+        if(domainUserByEmail.isPresent()&&domainUserByEmail.get().getRowId()!=rowId){
+            throw new SufUserSystemException(SufUserSystemStateCode.Email_ISRepeat);
+        }
+        //判断手机号是否占用
         Optional<DomainUser> domainUserByMobile=sufUserRepository.findByMobile(mobile);
-        DomainUser domainUser=new DomainUser();
+        if(domainUserByMobile.isPresent()&&domainUserByMobile.get().getRowId()!=rowId){
+            throw new SufUserSystemException(SufUserSystemStateCode.Mobile_IsRepeat);
+        }
+        //修改信息
+        DomainUser domainUser=domainUserById.get();
         domainUser.setUserName(userName);
         domainUser.setMobile(mobile);
         domainUser.setEmail(email);
-        if(!domainUserByMobile.isPresent()){
-            sufUserRepository.save(domainUser);
-        }
-        Domain_DomainUser_Rel domain_domainUser_rel=new Domain_DomainUser_Rel();
-        domain_domainUser_rel.setDomainId(domainOptional.get().getRowId());
-        domain_domainUser_rel.setDomainUser(domainUser);
-        Calendar calendar=Calendar.getInstance();
-        domain_domainUser_rel.setLastLoginTime(calendar.getTime());
-        relRepository.save(domain_domainUser_rel);
-
+        sufUserRepository.save(domainUser);
         JSONObject jsonObject=new JSONObject();
         jsonObject.put("rowId",domainUser.getRowId());
         jsonObject.put("userName",userName);
@@ -198,20 +196,24 @@ public class SufUserServiceImpl implements SufUserService{
      */
     @Override
     public void delDomainUser(String rowId, String domainNumber) {
+        //判断rowId,domainNumber是否为空
         if(rowId==null){
             throw new SufUserSystemException(SufUserSystemStateCode.User_IsNotExist);
         }else if (domainNumber==null){
             throw new SufUserSystemException(SufUserSystemStateCode.DomainNumber_IsEmpty);
         }
-        Optional<DomainUser> domainUserOptional=sufUserRepository.findById(rowId);
+        //判断用户，企业域是否存在
         Optional<Domain> domainOptional=domainRepository.findByDomainNumber(domainNumber);
-        if(!domainUserOptional.isPresent()){
-            throw new SufUserSystemException(SufUserSystemStateCode.User_IsNotExist);
-        }else if (!domainOptional.isPresent()){
+        if (!domainOptional.isPresent()){
             throw new SufUserSystemException(SufUserSystemStateCode.Domain_IsNotExist);
         }
+        String domainId=domainOptional.get().getRowId();
+        Optional<Domain_DomainUser_Rel> rel=relRepository.findByMyQuery(rowId,domainId);
+        if(!rel.isPresent()){
+            throw new SufUserSystemException(SufUserSystemStateCode.User_IsNotExist);
+        }
         //删除关联表中的数据
-        sufUserRepository.deleteById(rowId);
+        relRepository.deleteById(rel.get().getRowId());
     }
     /**
      *
@@ -219,7 +221,41 @@ public class SufUserServiceImpl implements SufUserService{
      */
     @Override
     public void modifyDomainUserPassword(String rowId, String domainNumber, String oldPassword, String newPassword) {
-
+        //判断rowId，domainNumber,oldPassword,newPassword是否为空
+        if(rowId==null){
+            throw new SufUserSystemException(SufUserSystemStateCode.User_IsNotExist);
+        }else if (domainNumber==null){
+            throw new SufUserSystemException(SufUserSystemStateCode.Domain_IsNotExist);
+        }else if (oldPassword==null||oldPassword.replaceAll("\\s*","").equals("")){
+            throw new SufUserSystemException(SufUserSystemStateCode.OldPassword_IsEmpty);
+        }else if (newPassword==null||newPassword.replaceAll("\\s*","").equals("")){
+            throw new SufUserSystemException(SufUserSystemStateCode.NewPassword_IsEmpty);
+        }
+        //判断企业域，用户是否存在
+        Optional<Domain> domainOptional=domainRepository.findByDomainNumber(domainNumber);
+        if (!domainOptional.isPresent()){
+            throw new SufUserSystemException(SufUserSystemStateCode.Domain_IsNotExist);
+        }
+        String domainId=domainOptional.get().getRowId();
+        Optional<Domain_DomainUser_Rel> rel=relRepository.findByMyQuery(rowId,domainId);
+        if(!rel.isPresent()){
+            throw new SufUserSystemException(SufUserSystemStateCode.User_IsNotExist);
+        }
+        Optional<DomainUser> domainUser=sufUserRepository.findById(rowId);
+        if(!domainUser.isPresent()){
+            throw new SufUserSystemException(SufUserSystemStateCode.User_IsNotExist);
+        }
+        DomainUser dbDomainUser=domainUser.get();
+        //判断旧密码是否正确
+        DomainUser paramDomainUser=new DomainUser();
+        paramDomainUser.setPassword(oldPassword);
+        if(!paramDomainUser.getPasswordHash().equals(dbDomainUser.getPasswordHash())){
+            throw new SufUserSystemException(SufUserSystemStateCode.OldPassword_IsErr);
+        }else if(oldPassword.equals(newPassword)){
+            throw new SufUserSystemException(SufUserSystemStateCode.Password_IsRepeat);
+        }
+        dbDomainUser.setPassword(newPassword);
+        sufUserRepository.save(dbDomainUser);
     }
     /**
      *
@@ -227,7 +263,31 @@ public class SufUserServiceImpl implements SufUserService{
      */
     @Override
     public void resetDomainUserPassword(String rowId, String domainNumber, String newPassword) {
-
+        //判断rowId，domainNumber,oldPassword,newPassword是否为空
+        if(rowId==null){
+            throw new SufUserSystemException(SufUserSystemStateCode.User_IsNotExist);
+        }else if (domainNumber==null){
+            throw new SufUserSystemException(SufUserSystemStateCode.Domain_IsNotExist);
+        }else if (newPassword==null||newPassword.replaceAll("\\s*","").equals("")){
+            throw new SufUserSystemException(SufUserSystemStateCode.NewPassword_IsEmpty);
+        }
+        //判断企业域，用户是否存在
+        Optional<Domain> domainOptional=domainRepository.findByDomainNumber(domainNumber);
+        if (!domainOptional.isPresent()){
+            throw new SufUserSystemException(SufUserSystemStateCode.Domain_IsNotExist);
+        }
+        String domainId=domainOptional.get().getRowId();
+        Optional<Domain_DomainUser_Rel> rel=relRepository.findByMyQuery(rowId,domainId);
+        if(!rel.isPresent()){
+            throw new SufUserSystemException(SufUserSystemStateCode.User_IsNotExist);
+        }
+        Optional<DomainUser> domainUser=sufUserRepository.findById(rowId);
+        if(!domainUser.isPresent()){
+            throw new SufUserSystemException(SufUserSystemStateCode.User_IsNotExist);
+        }
+        DomainUser dbDomainUser=domainUser.get();
+        dbDomainUser.setPassword(newPassword);
+        sufUserRepository.save(dbDomainUser);
     }
     /**
      *
@@ -235,7 +295,26 @@ public class SufUserServiceImpl implements SufUserService{
      */
     @Override
     public void setDomainUserEnable(String rowId, String domainNumber, Boolean isEnable) {
-
+        if(rowId==null){
+            throw new SufUserSystemException(SufUserSystemStateCode.User_IsNotExist);
+        }else if(isEnable==null){
+            throw new SufUserSystemException(SufUserSystemStateCode.IsEnable_IsEmpty);
+        }else if (domainNumber==null){
+            throw new SufUserSystemException(SufUserSystemStateCode.Domain_IsNotExist);
+        }
+        //判断企业域，用户是否存在
+        Optional<Domain> domainOptional=domainRepository.findByDomainNumber(domainNumber);
+        if (!domainOptional.isPresent()){
+            throw new SufUserSystemException(SufUserSystemStateCode.Domain_IsNotExist);
+        }
+        String domainId=domainOptional.get().getRowId();
+        Optional<Domain_DomainUser_Rel> rel=relRepository.findByMyQuery(rowId,domainId);
+        if(!rel.isPresent()){
+            throw new SufUserSystemException(SufUserSystemStateCode.User_IsNotExist);
+        }
+        Domain_DomainUser_Rel domain_domainUser_rel=rel.get();
+        domain_domainUser_rel.setIsEnable(isEnable);
+        relRepository.save(domain_domainUser_rel);
     }
     /**
      *
@@ -243,6 +322,25 @@ public class SufUserServiceImpl implements SufUserService{
      */
     @Override
     public void setDomainUserAdmin(String rowId, String domainNumber, Boolean isAdmin) {
-
+        if(rowId==null){
+            throw new SufUserSystemException(SufUserSystemStateCode.User_IsNotExist);
+        }else if(isAdmin==null){
+            throw new SufUserSystemException(SufUserSystemStateCode.IsAdmin_IsEmpty);
+        }else if (domainNumber==null){
+            throw new SufUserSystemException(SufUserSystemStateCode.Domain_IsNotExist);
+        }
+        //判断企业域，用户是否存在
+        Optional<Domain> domainOptional=domainRepository.findByDomainNumber(domainNumber);
+        if (!domainOptional.isPresent()){
+            throw new SufUserSystemException(SufUserSystemStateCode.Domain_IsNotExist);
+        }
+        String domainId=domainOptional.get().getRowId();
+        Optional<Domain_DomainUser_Rel> rel=relRepository.findByMyQuery(rowId,domainId);
+        if(!rel.isPresent()){
+            throw new SufUserSystemException(SufUserSystemStateCode.User_IsNotExist);
+        }
+        Domain_DomainUser_Rel domain_domainUser_rel=rel.get();
+        domain_domainUser_rel.setIsEnable(isAdmin);
+        relRepository.save(domain_domainUser_rel);
     }
 }
